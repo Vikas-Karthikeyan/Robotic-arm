@@ -1,0 +1,76 @@
+import cv2
+import serial
+import urllib.request
+import numpy as np
+import time
+
+# ✅ Open Serial Connection
+ser = serial.Serial('COM16', 9600, timeout=1)
+time.sleep(2)  # ✅ Wait for Arduino to initialize
+print("[✅] Serial connected on COM16")
+
+# ✅ Open Webcam
+cap = "http://192.168.82.125/capture"
+#cap = cv2.VideoCapture(0)
+
+def detect_color(frame):
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    lower_red = (0, 120, 70)
+    upper_red = (10, 255, 255)
+
+    lower_yellow = (25, 150, 50)
+    upper_yellow = (35, 255, 255)
+
+
+    lower_blue = (100, 150, 50)
+    upper_blue = (130, 255, 255)
+
+
+    mask_red = cv2.inRange(hsv, lower_red, upper_red)
+    mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
+
+    if cv2.countNonZero(mask_red) > 1000:
+        return 'R'
+    elif cv2.countNonZero(mask_yellow) > 1000:
+        return 'Y'
+    elif cv2.countNonZero(mask_blue) > 1000:
+        return 'B'
+    else:
+        return 'N'
+
+while True:
+    #ret, frame = cap.read()
+    try:
+        resp = urllib.request.urlopen(cap)
+        img_array = np.array(bytearray(resp.read()), dtype=np.uint8)
+        frame = cv2.imdecode(img_array, -1)  # Convert to OpenCV format
+    except Exception as e:
+        print(f"[❌] Error capturing frame: {e}")
+        continue
+
+    detected_color = detect_color(frame)
+
+    # ✅ Send color to Arduino
+    ser.write(detected_color.encode())
+    print(f"[📡] Sent to Arduino: {detected_color}")
+
+    # ✅ Read response from Arduino
+    time.sleep(0.05)  # ✅ Small delay to allow Arduino to process
+    if ser.in_waiting > 0:
+        response = ser.readline().decode('utf-8').strip()
+        print(f"[📥] Arduino Response: {response}")
+
+    cv2.putText(frame, f"Detected: {detected_color}", (50, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+    cv2.imshow("Color Detection", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('p'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+ser.close()
+print("[✅] Program terminated")
